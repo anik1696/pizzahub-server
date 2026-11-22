@@ -101,7 +101,12 @@ router.get('/', verifyToken, verifyAdmin, async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const collection = await getUsersCollection();
-    const user = await collection.findOne({ _id: req.params.id });
+    // Try _id as string first (Better Auth stores string IDs)
+    let user = await collection.findOne({ _id: req.params.id });
+    // Also try 'id' field as fallback
+    if (!user) {
+      user = await collection.findOne({ id: req.params.id });
+    }
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
