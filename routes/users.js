@@ -50,7 +50,7 @@ router.patch('/profile/update', verifyToken, async (req, res) => {
     // Don't allow: role, subscriptionPlan, subscriptionExpiresAt, isBlocked
 
     await collection.updateOne(
-      { _id: req.user.id },
+      { $or: [{ _id: req.user.id }, { id: req.user.id }, { email: req.user.email }] },
       { $set: updateData }
     );
 
