@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const MenuItem = require('../models/MenuItem');
-const { verifyToken, verifyRole, verifyAdmin, verifyVendor } = require('../middleware/auth');
-const { MongoClient } = require('mongodb');
+const { verifyToken, verifyRole, verifyAdmin, verifyVendor, verifyCustomer } = require('../middleware/auth');
+const { MongoClient, ObjectId } = require('mongodb');
 
 let usersCollection;
 const getUsersCollection = async () => {
@@ -265,6 +265,81 @@ router.delete('/admin/:id', verifyToken, verifyAdmin, async (req, res) => {
       return res.status(404).json({ message: 'Menu item not found' });
     }
     res.json({ message: 'Menu item deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// POST add or update review (customer only)
+router.post('/:id/reviews', verifyToken, verifyCustomer, async (req, res) => {
+  try {
+    const { rating, review } = req.body;
+    const ratingNum = Number(rating);
+
+    if (!ratingNum || ratingNum < 1 || ratingNum > 5) {
+      return res.status(400).json({ message: 'Rating must be an integer between 1 and 5' });
+    }
+    if (!review || !review.trim()) {
+      return res.status(400).json({ message: 'Review text is required' });
+    }
+
+    const item = await MenuItem.findById(req.params.id);
+    if (!item) {
+      return res.status(404).json({ message: 'Menu item not found' });
+    }
+
+    // Check if customer has ordered this item
+    const Order = require('../models/Order');
+    const hasOrdered = await Order.findOne({
+      customerId: req.user.id,
+      itemId: item._id,
+    });
+
+    const col = await getUsersCollection();
+    let userDoc = null;
+    try {
+      userDoc = await col.findOne({ $or: [{ id: req.user.id }, { email: req.user.email }, { _id: new ObjectId(req.user.id) }] });
+    } catch (_) {
+      userDoc = await col.findOne({ $or: [{ id: req.user.id }, { email: req.user.email }] });
+    }
+
+    const userName = userDoc?.name || req.user.name || 'Customer';
+    const userImage = userDoc?.image || req.user.image || '';
+
+    if (!item.ratings) {
+      item.ratings = [];
+    }
+
+    const existingIdx = item.ratings.findIndex((r) => r.userId === req.user.id);
+    if (existingIdx !== -1) {
+      item.ratings[existingIdx].rating = ratingNum;
+      item.ratings[existingIdx].review = review.trim();
+      item.ratings[existingIdx].userName = userName;
+      item.ratings[existingIdx].userImage = userImage;
+      item.ratings[existingIdx].verifiedPurchase = !!hasOrdered;
+      item.ratings[existingIdx].createdAt = new Date();
+    } else {
+      item.ratings.unshift({
+        userId: req.user.id,
+        userName,
+        userImage,
+        rating: ratingNum,
+        review: review.trim(),
+        verifiedPurchase: !!hasOrdered,
+        createdAt: new Date(),
+      });
+    }
+
+    const totalRatings = item.ratings.length;
+    const sumRatings = item.ratings.reduce((sum, r) => sum + r.rating, 0);
+    const avg = Math.round((sumRatings / totalRatings) * 10) / 10;
+    item.averageRating = avg;
+    item.rating = avg;
+    item.reviewCount = totalRatings;
+
+    await item.save();
+
+    res.json({ message: 'Review submitted successfully', item });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }

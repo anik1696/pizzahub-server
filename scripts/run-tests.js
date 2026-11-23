@@ -311,6 +311,54 @@ async function runTests() {
     assert(false, 'Transactions Read-Only', e.message);
   }
 
+  // ── TEST 11: Customer Rating & Review Submission ──
+  console.log('\n--- TEST 11: Customer Rating & Review Submission ---');
+  try {
+    const customer = await userCol.findOne({ role: 'customer', isBlocked: { $ne: true } });
+    const item = await menuCol.findOne({ status: 'approved' });
+
+    if (customer && item) {
+      const customerToken = jwt.sign(
+        { id: customer._id.toString(), email: customer.email, role: 'customer' },
+        process.env.JWT_SECRET,
+        { expiresIn: '1h' }
+      );
+
+      // Submit review
+      const resRev = await fetch(`${API_BASE}/api/menu-items/${item._id}/reviews`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${customerToken}`
+        },
+        body: JSON.stringify({
+          rating: 5,
+          review: 'E2E test: Delicious pizza, crust was crisp!'
+        })
+      });
+      const dataRev = await resRev.json();
+      assert(resRev.ok, 'Customer can submit a 5-star review');
+      assert(dataRev.item?.rating >= 1, 'Item rating is calculated and updated');
+      assert(dataRev.item?.ratings?.length > 0, 'Item ratings array contains review');
+
+      // Invalid rating rejection
+      const resBadRating = await fetch(`${API_BASE}/api/menu-items/${item._id}/reviews`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${customerToken}`
+        },
+        body: JSON.stringify({
+          rating: 7, // invalid: must be 1-5
+          review: 'Bad rating test'
+        })
+      });
+      assert(resBadRating.status === 400, 'Invalid rating (out of 1-5 range) rejected with 400');
+    }
+  } catch (e) {
+    assert(false, 'Customer Review Submission', e.message);
+  }
+
   // ── SUMMARY ──
   console.log('\n====================================================');
   console.log(`📊 TEST SUITE SUMMARY: ${passed} PASSED, ${failed} FAILED`);
