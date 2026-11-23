@@ -1,5 +1,23 @@
 const jwt = require('jsonwebtoken');
 const { getAuth } = require('../config/auth');
+const { MongoClient, ObjectId } = require('mongodb');
+
+let _usersCol;
+const getUsersCol = async () => {
+  if (_usersCol) return _usersCol;
+  const client = new MongoClient(process.env.MONGODB_URI);
+  await client.connect();
+  _usersCol = client.db().collection('user');
+  return _usersCol;
+};
+
+const isUserBlocked = async (email) => {
+  try {
+    const col = await getUsersCol();
+    const u = await col.findOne({ email }, { projection: { isBlocked: 1 } });
+    return u?.isBlocked === true;
+  } catch { return false; }
+};
 
 // Middleware to verify Better Auth session and also support JWT
 const verifyToken = async (req, res, next) => {
@@ -10,9 +28,10 @@ const verifyToken = async (req, res, next) => {
 
     if (session && session.user) {
       req.user = session.user;
-      // Check if user is blocked
-      if (req.user.isBlocked) {
-        return res.status(403).json({ message: 'Your account has been blocked' });
+      // Live DB check — Better Auth session object does NOT include custom fields
+      const blocked = await isUserBlocked(session.user.email);
+      if (blocked) {
+        return res.status(403).json({ message: 'Your account has been blocked by an administrator.' });
       }
       return next();
     }
@@ -26,8 +45,10 @@ const verifyToken = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded;
 
-    if (req.user.isBlocked) {
-      return res.status(403).json({ message: 'Your account has been blocked' });
+    // Live DB check for JWT path too
+    const blocked = await isUserBlocked(decoded.email);
+    if (blocked) {
+      return res.status(403).json({ message: 'Your account has been blocked by an administrator.' });
     }
 
     next();
