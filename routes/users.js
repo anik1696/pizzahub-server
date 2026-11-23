@@ -2,7 +2,15 @@ const express = require('express');
 const router = express.Router();
 const { verifyToken, verifyAdmin } = require('../middleware/auth');
 const { getAuth } = require('../config/auth');
-const { MongoClient } = require('mongodb');
+const { MongoClient, ObjectId } = require('mongodb');
+
+// Helper: build an _id query that works for both ObjectId and plain string IDs
+const idQuery = (id) => {
+  const q = [{ id }];
+  try { q.push({ _id: new ObjectId(id) }); } catch (_) {}
+  q.push({ _id: id }); // also try plain string just in case
+  return { $or: q };
+};
 
 let usersCollection;
 
@@ -50,7 +58,7 @@ router.patch('/profile/update', verifyToken, async (req, res) => {
     // Don't allow: role, subscriptionPlan, subscriptionExpiresAt, isBlocked
 
     await collection.updateOne(
-      { $or: [{ _id: req.user.id }, { id: req.user.id }, { email: req.user.email }] },
+      idQuery(req.user.id),
       { $set: updateData }
     );
 
@@ -80,7 +88,7 @@ router.get('/', verifyToken, verifyAdmin, async (req, res) => {
     const users = await collection.find(query).toArray();
     // Remove sensitive fields
     const sanitized = users.map((u) => ({
-      id: u._id || u.id,
+      id: u._id?.toString() || u.id,
       name: u.name,
       email: u.email,
       image: u.image,
@@ -101,19 +109,14 @@ router.get('/', verifyToken, verifyAdmin, async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const collection = await getUsersCollection();
-    // Try _id as string first (Better Auth stores string IDs)
-    let user = await collection.findOne({ _id: req.params.id });
-    // Also try 'id' field as fallback
-    if (!user) {
-      user = await collection.findOne({ id: req.params.id });
-    }
+    const user = await collection.findOne(idQuery(req.params.id));
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
     res.json({
-      id: user._id || user.id,
+      id: user._id?.toString() || user.id,
       name: user.name,
       email: user.email,
       image: user.image,
@@ -135,22 +138,18 @@ router.patch('/:id/block', verifyToken, verifyAdmin, async (req, res) => {
     const collection = await getUsersCollection();
     const targetId = req.params.id;
 
-    // Better Auth stores _id as a plain string — try both _id and id fields
-    let user = await collection.findOne({ _id: targetId });
-    if (!user) user = await collection.findOne({ id: targetId });
+    // Use idQuery helper to match both ObjectId and plain string _id
+    const user = await collection.findOne(idQuery(targetId));
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
     // Admin cannot block themselves
-    if (targetId === req.user.id || user.email === req.user.email) {
+    if (user.email === req.user.email) {
       return res.status(400).json({ message: 'You cannot block yourself' });
     }
 
-    await collection.updateOne(
-      { $or: [{ _id: targetId }, { id: targetId }] },
-      { $set: { isBlocked: isBlocked } }
-    );
+    await collection.updateOne(idQuery(targetId), { $set: { isBlocked } });
 
     res.json({ message: `User ${isBlocked ? 'blocked' : 'unblocked'} successfully` });
   } catch (error) {
