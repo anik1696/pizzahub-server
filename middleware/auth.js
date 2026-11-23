@@ -28,11 +28,13 @@ const verifyToken = async (req, res, next) => {
 
     if (session && session.user) {
       req.user = session.user;
-      // Live DB check — Better Auth session object does NOT include custom fields
-      const blocked = await isUserBlocked(session.user.email);
-      if (blocked) {
+      const col = await getUsersCol();
+      const u = await col.findOne({ email: session.user.email });
+      if (u?.isBlocked === true) {
         return res.status(403).json({ message: 'Your account has been blocked by an administrator.' });
       }
+      req.user.role = u?.role || 'customer';
+      req.user.id = u?._id?.toString() || session.user.id;
       return next();
     }
 
@@ -45,11 +47,13 @@ const verifyToken = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded;
 
-    // Live DB check for JWT path too
-    const blocked = await isUserBlocked(decoded.email);
-    if (blocked) {
+    const col = await getUsersCol();
+    const u = await col.findOne({ email: decoded.email });
+    if (u?.isBlocked === true) {
       return res.status(403).json({ message: 'Your account has been blocked by an administrator.' });
     }
+    req.user.role = u?.role || decoded.role || 'customer';
+    req.user.id = u?._id?.toString() || decoded.id;
 
     next();
   } catch (error) {
