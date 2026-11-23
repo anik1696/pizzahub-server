@@ -2,6 +2,16 @@ const express = require('express');
 const router = express.Router();
 const MenuItem = require('../models/MenuItem');
 const { verifyToken, verifyRole, verifyAdmin, verifyVendor } = require('../middleware/auth');
+const { MongoClient } = require('mongodb');
+
+let usersCollection;
+const getUsersCollection = async () => {
+  if (usersCollection) return usersCollection;
+  const client = new MongoClient(process.env.MONGODB_URI);
+  await client.connect();
+  usersCollection = client.db('pizzahub').collection('user');
+  return usersCollection;
+};
 
 // GET all approved & active items (public)
 router.get('/', async (req, res) => {
@@ -114,6 +124,23 @@ router.post('/', verifyToken, verifyVendor, async (req, res) => {
     // Validate required fields
     if (!itemName || !category || !description || !price || !location) {
       return res.status(400).json({ message: 'Item name, category, description, price, and location are required' });
+    }
+
+    // Free plan: max 3 active/pending menu items
+    const col = await getUsersCollection();
+    const vendor = await col.findOne({ $or: [{ _id: req.user.id }, { email: req.user.email }] });
+    const isPremium = vendor?.subscriptionPlan === 'premium';
+    if (!isPremium) {
+      const activeCount = await MenuItem.countDocuments({
+        vendorId: req.user.id,
+        status: { $in: ['approved', 'pending'] },
+      });
+      if (activeCount >= 3) {
+        return res.status(403).json({
+          message: 'Free plan allows a maximum of 3 menu items. Upgrade to Premium for unlimited items.',
+          code: 'PLAN_LIMIT',
+        });
+      }
     }
 
     const imagesList = images || (req.body.image ? [req.body.image] : []);
