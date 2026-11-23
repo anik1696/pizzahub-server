@@ -133,19 +133,22 @@ router.patch('/:id/block', verifyToken, verifyAdmin, async (req, res) => {
   try {
     const { isBlocked } = req.body;
     const collection = await getUsersCollection();
+    const targetId = req.params.id;
 
-    const user = await collection.findOne({ _id: req.params.id });
+    // Better Auth stores _id as a plain string — try both _id and id fields
+    let user = await collection.findOne({ _id: targetId });
+    if (!user) user = await collection.findOne({ id: targetId });
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
     // Admin cannot block themselves
-    if (req.params.id === req.user.id) {
+    if (targetId === req.user.id || user.email === req.user.email) {
       return res.status(400).json({ message: 'You cannot block yourself' });
     }
 
     await collection.updateOne(
-      { _id: req.params.id },
+      { $or: [{ _id: targetId }, { id: targetId }] },
       { $set: { isBlocked: isBlocked } }
     );
 
