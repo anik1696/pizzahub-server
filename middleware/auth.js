@@ -7,7 +7,7 @@ const getUsersCol = async () => {
   if (_usersCol) return _usersCol;
   const client = new MongoClient(process.env.MONGODB_URI);
   await client.connect();
-  _usersCol = client.db().collection('user');
+  _usersCol = client.db('pizzahub').collection('user');
   return _usersCol;
 };
 

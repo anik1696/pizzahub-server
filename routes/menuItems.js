@@ -20,7 +20,10 @@ router.get('/', async (req, res) => {
     const query = { status: 'approved' };
 
     if (search) {
-      query.itemName = { $regex: search, $options: 'i' };
+      query.$or = [
+        { itemName: { $regex: search, $options: 'i' } },
+        { name: { $regex: search, $options: 'i' } },
+      ];
     }
     if (category) {
       query.category = category;
@@ -84,7 +87,10 @@ router.get('/admin/all', verifyToken, verifyAdmin, async (req, res) => {
     const query = {};
 
     if (search) {
-      query.itemName = { $regex: search, $options: 'i' };
+      query.$or = [
+        { itemName: { $regex: search, $options: 'i' } },
+        { name: { $regex: search, $options: 'i' } },
+      ];
     }
     if (status) {
       query.status = status;

@@ -18,7 +18,7 @@ const getUsersCollection = async () => {
   if (usersCollection) return usersCollection;
   const client = new MongoClient(process.env.MONGODB_URI);
   await client.connect();
-  const db = client.db();
+  const db = client.db('pizzahub');
   usersCollection = db.collection('user');
   return usersCollection;
 };
